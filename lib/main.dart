@@ -6,7 +6,12 @@ import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NotificationService.instance.initialize();
+  try {
+    await NotificationService.instance.initialize();
+  } catch (error, stackTrace) {
+    debugPrint('Notification init failed: $error');
+    debugPrint('$stackTrace');
+  }
 
   runApp(const MedicineReminderApp());
 }
