@@ -127,16 +127,33 @@ class ScheduleManagementPage extends StatelessWidget {
   }
 
   String _buildSubtitle(MedicineSchedule schedule) {
-    final String timeText = _formatTime(schedule.hour, schedule.minute);
+    final String scheduleText = _buildScheduleText(schedule);
     final String noteText = schedule.note.trim().isEmpty
         ? 'Không có ghi chú'
         : 'Ghi chú: ${schedule.note.trim()}';
 
-    return 'Giờ uống: $timeText\n$noteText';
+    return '$scheduleText\n$noteText';
   }
 
   String _formatTime(int hour, int minute) {
     return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  }
+
+  String _buildScheduleText(MedicineSchedule schedule) {
+    final String timeText = _formatTime(schedule.hour, schedule.minute);
+
+    if (schedule.isDaily) {
+      return 'Lặp: Hằng ngày lúc $timeText';
+    }
+
+    final DateTime? date = schedule.specificDate;
+    if (date == null) {
+      return 'Theo ngày: Không hợp lệ';
+    }
+
+    final String day = date.day.toString().padLeft(2, '0');
+    final String month = date.month.toString().padLeft(2, '0');
+    return 'Ngày uống: $day/$month/${date.year} lúc $timeText';
   }
 
   Future<void> _openAddSchedule(BuildContext context) async {
@@ -194,7 +211,7 @@ class ScheduleManagementPage extends StatelessWidget {
         return AlertDialog(
           title: const Text('Xác nhận xóa lịch'),
           content: Text(
-            'Bạn có chắc chắn muốn xóa lịch ${schedule.medicineName} lúc ${_formatTime(schedule.hour, schedule.minute)} không?',
+            'Bạn có chắc chắn muốn xóa lịch ${schedule.medicineName} (${_buildScheduleText(schedule)}) không?',
           ),
           actions: <Widget>[
             TextButton(

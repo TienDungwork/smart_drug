@@ -101,10 +101,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final Medicine? linkedMedicine = medicineById[schedule.medicineId];
       final String resolvedMedicineName =
           linkedMedicine?.name ?? schedule.medicineName;
+      final bool hasValidSpecificDate = schedule.specificDate != null;
+      final bool useDaily = !schedule.isDaily && !hasValidSpecificDate;
+      final bool shouldClearDate = schedule.isDaily || useDaily;
 
       return schedule.copyWith(
         medicineName: resolvedMedicineName,
         notificationId: notificationId,
+        scheduleType: useDaily ? MedicineSchedule.typeDaily : schedule.scheduleType,
+        clearDate: shouldClearDate,
       );
     }).toList();
   }
@@ -112,17 +117,49 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   List<MedicineSchedule> _sortedSchedules(List<MedicineSchedule> schedules) {
     final List<MedicineSchedule> sorted = List<MedicineSchedule>.from(schedules);
     sorted.sort((MedicineSchedule a, MedicineSchedule b) {
-      final int byHour = a.hour.compareTo(b.hour);
-      if (byHour != 0) {
-        return byHour;
-      }
-      final int byMinute = a.minute.compareTo(b.minute);
-      if (byMinute != 0) {
-        return byMinute;
+      final DateTime aNext = _nextOccurrenceForSort(a);
+      final DateTime bNext = _nextOccurrenceForSort(b);
+      final int byNextTime = aNext.compareTo(bNext);
+      if (byNextTime != 0) {
+        return byNextTime;
       }
       return a.medicineName.toLowerCase().compareTo(b.medicineName.toLowerCase());
     });
     return sorted;
+  }
+
+  DateTime _nextOccurrenceForSort(MedicineSchedule schedule) {
+    final DateTime now = DateTime.now();
+    if (schedule.isDaily) {
+      DateTime dateTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        schedule.hour,
+        schedule.minute,
+      );
+      if (!dateTime.isAfter(now)) {
+        dateTime = dateTime.add(const Duration(days: 1));
+      }
+      return dateTime;
+    }
+
+    final DateTime? specificDate = schedule.specificDate;
+    if (specificDate == null) {
+      return DateTime(9999, 12, 31, 23, 59);
+    }
+
+    final DateTime dateTime = DateTime(
+      specificDate.year,
+      specificDate.month,
+      specificDate.day,
+      schedule.hour,
+      schedule.minute,
+    );
+    if (!dateTime.isAfter(now)) {
+      return DateTime(9999, 12, 31, 23, 59);
+    }
+    return dateTime;
   }
 
   String _generateStringId() {
@@ -282,7 +319,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         });
 
         if (_settings.notificationsEnabled) {
-          await _notificationService.scheduleDailyReminder(newSchedule);
+          await _notificationService.scheduleReminder(newSchedule);
         }
 
         _showSnackBar('Đã tạo lịch uống thuốc.');
@@ -316,7 +353,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       await _notificationService
           .cancelScheduleNotification(oldSchedule.notificationId);
       if (_settings.notificationsEnabled) {
-        await _notificationService.scheduleDailyReminder(updatedSchedule);
+        await _notificationService.scheduleReminder(updatedSchedule);
       }
 
       if (!mounted) {
@@ -329,7 +366,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
       _showSnackBar('Đã cập nhật lịch uống thuốc.');
     } catch (_) {
-      _showSnackBar('Co loi khi luu lich.');
+      _showSnackBar('Có lỗi khi lưu lịch.');
     }
   }
 

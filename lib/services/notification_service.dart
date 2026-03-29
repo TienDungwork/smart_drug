@@ -55,21 +55,21 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
 
     await androidImplementation?.requestNotificationsPermission();
+    await androidImplementation?.requestExactAlarmsPermission();
   }
 
-  Future<void> scheduleDailyReminder(MedicineSchedule schedule) async {
+  Future<void> scheduleReminder(MedicineSchedule schedule) async {
+    if (schedule.isDaily) {
+      await _scheduleDailyReminder(schedule);
+      return;
+    }
+    await _scheduleOneTimeReminder(schedule);
+  }
+
+  Future<void> _scheduleDailyReminder(MedicineSchedule schedule) async {
     final tz.TZDateTime scheduledDate =
         _nextInstanceOfTime(schedule.hour, schedule.minute);
-
-    const NotificationDetails details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        _channelId,
-        _channelName,
-        channelDescription: _channelDescription,
-        importance: Importance.max,
-        priority: Priority.high,
-      ),
-    );
+    final NotificationDetails details = _buildNotificationDetails();
 
     try {
       await _plugin.zonedSchedule(
@@ -96,6 +96,65 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
       );
     }
+  }
+
+  Future<void> _scheduleOneTimeReminder(MedicineSchedule schedule) async {
+    final DateTime? specificDate = schedule.specificDate;
+    if (specificDate == null) {
+      return;
+    }
+
+    final tz.TZDateTime scheduledDate = tz.TZDateTime(
+      tz.local,
+      specificDate.year,
+      specificDate.month,
+      specificDate.day,
+      schedule.hour,
+      schedule.minute,
+    );
+
+    if (!scheduledDate.isAfter(tz.TZDateTime.now(tz.local))) {
+      return;
+    }
+
+    final NotificationDetails details = _buildNotificationDetails();
+
+    try {
+      await _plugin.zonedSchedule(
+        schedule.notificationId,
+        'Nhắc uống thuốc',
+        'Đến giờ uống ${schedule.medicineName}',
+        scheduledDate,
+        details,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+    } catch (_) {
+      await _plugin.zonedSchedule(
+        schedule.notificationId,
+        'Nhắc uống thuốc',
+        'Đến giờ uống ${schedule.medicineName}',
+        scheduledDate,
+        details,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    }
+  }
+
+  NotificationDetails _buildNotificationDetails() {
+    const NotificationDetails details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _channelId,
+        _channelName,
+        channelDescription: _channelDescription,
+        importance: Importance.max,
+        priority: Priority.high,
+      ),
+    );
+    return details;
   }
 
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
@@ -129,7 +188,7 @@ class NotificationService {
     }
 
     for (final MedicineSchedule schedule in schedules) {
-      await scheduleDailyReminder(schedule);
+      await scheduleReminder(schedule);
     }
   }
 }

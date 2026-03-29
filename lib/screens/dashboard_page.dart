@@ -15,11 +15,15 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<MedicineSchedule> upcomingSchedules =
-        List<MedicineSchedule>.from(schedules)
-          ..sort((MedicineSchedule a, MedicineSchedule b) {
-            return _nextOccurrence(a).compareTo(_nextOccurrence(b));
-          });
+    final int todaySchedulesCount =
+        schedules.where((MedicineSchedule schedule) => _isTodaySchedule(schedule)).length;
+
+    final List<MedicineSchedule> upcomingSchedules = schedules
+        .where((MedicineSchedule schedule) => _nextOccurrence(schedule) != null)
+        .toList()
+      ..sort((MedicineSchedule a, MedicineSchedule b) {
+        return _nextOccurrence(a)!.compareTo(_nextOccurrence(b)!);
+      });
 
     final List<MedicineSchedule> topSchedules = upcomingSchedules.take(5).toList();
 
@@ -52,7 +56,7 @@ class DashboardPage extends StatelessWidget {
           _SummaryCard(
             icon: Icons.today,
             title: 'Lịch trong ngày',
-            value: schedules.length.toString(),
+            value: todaySchedulesCount.toString(),
           ),
           const SizedBox(height: 20),
           Text(
@@ -76,12 +80,15 @@ class DashboardPage extends StatelessWidget {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (BuildContext context, int index) {
                   final MedicineSchedule schedule = topSchedules[index];
-                  final DateTime nextTime = _nextOccurrence(schedule);
+                  final DateTime? nextTime = _nextOccurrence(schedule);
+                  if (nextTime == null) {
+                    return const SizedBox.shrink();
+                  }
                   return ListTile(
                     leading: const Icon(Icons.alarm),
                     title: Text(schedule.medicineName),
                     subtitle: Text(
-                      'Lúc ${_formatTime(schedule.hour, schedule.minute)} - ${_formatDateTime(nextTime)}',
+                      _buildScheduleText(schedule, nextTime),
                     ),
                     trailing: schedule.note.trim().isEmpty
                         ? null
@@ -95,18 +102,62 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
-  DateTime _nextOccurrence(MedicineSchedule schedule) {
+  String _buildScheduleText(MedicineSchedule schedule, DateTime nextTime) {
+    final String timeText = _formatTime(schedule.hour, schedule.minute);
+    if (schedule.isDaily) {
+      return 'Hằng ngày lúc $timeText - lần tới: ${_formatDateTime(nextTime)}';
+    }
+    return 'Theo ngày lúc $timeText - ${_formatDateTime(nextTime)}';
+  }
+
+  bool _isTodaySchedule(MedicineSchedule schedule) {
+    if (schedule.isDaily) {
+      return true;
+    }
+
+    final DateTime? specificDate = schedule.specificDate;
+    if (specificDate == null) {
+      return false;
+    }
+
     final DateTime now = DateTime.now();
-    DateTime dateTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
+    return now.year == specificDate.year &&
+        now.month == specificDate.month &&
+        now.day == specificDate.day;
+  }
+
+  DateTime? _nextOccurrence(MedicineSchedule schedule) {
+    final DateTime now = DateTime.now();
+    if (schedule.isDaily) {
+      DateTime dateTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        schedule.hour,
+        schedule.minute,
+      );
+
+      if (!dateTime.isAfter(now)) {
+        dateTime = dateTime.add(const Duration(days: 1));
+      }
+      return dateTime;
+    }
+
+    final DateTime? specificDate = schedule.specificDate;
+    if (specificDate == null) {
+      return null;
+    }
+
+    final DateTime dateTime = DateTime(
+      specificDate.year,
+      specificDate.month,
+      specificDate.day,
       schedule.hour,
       schedule.minute,
     );
 
     if (!dateTime.isAfter(now)) {
-      dateTime = dateTime.add(const Duration(days: 1));
+      return null;
     }
 
     return dateTime;

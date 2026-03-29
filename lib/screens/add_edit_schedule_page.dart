@@ -23,6 +23,8 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
 
   String? _selectedMedicineId;
   TimeOfDay? _selectedTime;
+  bool _isDaily = true;
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -42,6 +44,8 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
         hour: widget.existingSchedule!.hour,
         minute: widget.existingSchedule!.minute,
       );
+      _isDaily = widget.existingSchedule!.isDaily;
+      _selectedDate = widget.existingSchedule!.specificDate;
     }
   }
 
@@ -102,6 +106,53 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue:
+                          _isDaily ? MedicineSchedule.typeDaily : MedicineSchedule.typeOnce,
+                      decoration: const InputDecoration(
+                        labelText: 'Kiểu lịch *',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const <DropdownMenuItem<String>>[
+                        DropdownMenuItem<String>(
+                          value: MedicineSchedule.typeDaily,
+                          child: Text('Hằng ngày'),
+                        ),
+                        DropdownMenuItem<String>(
+                          value: MedicineSchedule.typeOnce,
+                          child: Text('Theo ngày cụ thể'),
+                        ),
+                      ],
+                      onChanged: (String? value) {
+                        setState(() {
+                          _isDaily = value != MedicineSchedule.typeOnce;
+                          if (_isDaily) {
+                            _selectedDate = null;
+                          }
+                        });
+                      },
+                    ),
+                    if (!_isDaily) ...<Widget>[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _pickDate,
+                        icon: const Icon(Icons.calendar_today_outlined),
+                        label: Text(
+                          _selectedDate == null
+                              ? 'Chọn ngày uống *'
+                              : 'Ngày đã chọn: ${_formatDisplayDate(_selectedDate!)}',
+                        ),
+                      ),
+                      if (_selectedDate == null)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6, left: 8),
+                          child: Text(
+                            'Bạn chưa chọn ngày uống.',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: _pickTime,
                       icon: const Icon(Icons.access_time),
@@ -145,6 +196,26 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
     );
   }
 
+  Future<void> _pickDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime initialDate = _selectedDate ?? now;
+
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+    );
+
+    if (pickedDate == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedDate = pickedDate;
+    });
+  }
+
   Future<void> _pickTime() async {
     final TimeOfDay initial = _selectedTime ?? TimeOfDay.now();
 
@@ -168,6 +239,12 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
     return '$h:$m';
   }
 
+  String _formatDisplayDate(DateTime date) {
+    final String day = date.day.toString().padLeft(2, '0');
+    final String month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
+  }
+
   void _onSave() {
     final bool validForm = _formKey.currentState?.validate() ?? false;
     if (!validForm) {
@@ -179,6 +256,32 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
         const SnackBar(content: Text('Vui lòng chọn giờ uống thuốc.')),
       );
       return;
+    }
+
+    if (!_isDaily && _selectedDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng chọn ngày uống thuốc.')),
+      );
+      return;
+    }
+
+    if (!_isDaily) {
+      final DateTime scheduledDateTime = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
+
+      if (!scheduledDateTime.isAfter(DateTime.now())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lịch theo ngày phải có thời gian sau hiện tại.'),
+          ),
+        );
+        return;
+      }
     }
 
     Medicine? selectedMedicine;
@@ -202,6 +305,9 @@ class _AddEditSchedulePageState extends State<AddEditSchedulePage> {
       medicineName: selectedMedicine.name,
       hour: _selectedTime!.hour,
       minute: _selectedTime!.minute,
+      scheduleType:
+          _isDaily ? MedicineSchedule.typeDaily : MedicineSchedule.typeOnce,
+      date: _isDaily ? null : MedicineSchedule.formatDate(_selectedDate!),
       note: _noteController.text.trim(),
       notificationId: widget.existingSchedule?.notificationId ?? 0,
     );
