@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../models/medicine.dart';
+import '../models/medicine_intake_record.dart';
 import '../models/medicine_schedule.dart';
 
 class StorageService {
@@ -14,6 +15,7 @@ class StorageService {
   static const String _medicinesKey = 'medicines';
   static const String _schedulesKey = 'schedules';
   static const String _settingsKey = 'settings';
+  static const String _intakeRecordsKey = 'intake_records';
 
   Future<List<Medicine>> loadMedicines() async {
     try {
@@ -98,6 +100,40 @@ class StorageService {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String rawData = jsonEncode(settings.toJson());
       return prefs.setString(_settingsKey, rawData);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<MedicineIntakeRecord>> loadIntakeRecords() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? rawData = prefs.getString(_intakeRecordsKey);
+
+      if (rawData == null || rawData.isEmpty) {
+        return <MedicineIntakeRecord>[];
+      }
+
+      final List<dynamic> decoded = jsonDecode(rawData) as List<dynamic>;
+      return decoded
+          .map(
+            (dynamic item) => MedicineIntakeRecord.fromJson(
+              Map<String, dynamic>.from(item as Map<dynamic, dynamic>),
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return <MedicineIntakeRecord>[];
+    }
+  }
+
+  Future<bool> saveIntakeRecords(List<MedicineIntakeRecord> records) async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String rawData = jsonEncode(
+        records.map((MedicineIntakeRecord record) => record.toJson()).toList(),
+      );
+      return prefs.setString(_intakeRecordsKey, rawData);
     } catch (_) {
       return false;
     }

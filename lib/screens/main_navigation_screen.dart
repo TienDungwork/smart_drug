@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
 import '../models/medicine.dart';
+import '../models/medicine_intake_record.dart';
 import '../models/medicine_schedule.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
+import '../theme/app_theme.dart';
+import '../utils/schedule_utils.dart';
 import 'account_settings_page.dart';
 import 'dashboard_page.dart';
 import 'medicine_management_page.dart';
@@ -30,6 +33,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   List<Medicine> _medicines = <Medicine>[];
   List<MedicineSchedule> _schedules = <MedicineSchedule>[];
+  List<MedicineIntakeRecord> _intakeRecords = <MedicineIntakeRecord>[];
   AppSettings _settings = AppSettings.initial();
 
   @override
@@ -43,6 +47,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final List<Medicine> medicines = await _storageService.loadMedicines();
       final List<MedicineSchedule> rawSchedules =
           await _storageService.loadSchedules();
+      final List<MedicineIntakeRecord> rawIntakeRecords =
+          await _storageService.loadIntakeRecords();
       AppSettings settings = await _storageService.loadSettings();
 
       // Migrate old non-accented default display name to accented text.
@@ -54,6 +60,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
       final List<MedicineSchedule> normalizedSchedules =
           _normalizeSchedules(rawSchedules, medicines);
+      final List<MedicineIntakeRecord> normalizedIntakeRecords =
+          _normalizeIntakeRecords(rawIntakeRecords, normalizedSchedules);
 
       if (!mounted) {
         return;
@@ -62,10 +70,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       setState(() {
         _medicines = medicines;
         _schedules = _sortedSchedules(normalizedSchedules);
+        _intakeRecords = normalizedIntakeRecords;
         _settings = settings;
       });
 
       await _storageService.saveSchedules(_schedules);
+      await _storageService.saveIntakeRecords(_intakeRecords);
       await _notificationService.syncAllSchedules(
         schedules: _schedules,
         notificationsEnabled: _settings.notificationsEnabled,
@@ -91,7 +101,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     final Set<int> usedNotificationIds = <int>{};
 
-    return schedules.map((MedicineSchedule schedule) {
+    return schedules
+        .where((MedicineSchedule schedule) {
+          return medicineById.containsKey(schedule.medicineId);
+        })
+        .map((MedicineSchedule schedule) {
       int notificationId = schedule.notificationId;
       if (notificationId <= 0 || usedNotificationIds.contains(notificationId)) {
         notificationId = _generateNotificationId(usedNotificationIds);
@@ -126,6 +140,30 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       return a.medicineName.toLowerCase().compareTo(b.medicineName.toLowerCase());
     });
     return sorted;
+  }
+
+  List<MedicineIntakeRecord> _normalizeIntakeRecords(
+    List<MedicineIntakeRecord> records,
+    List<MedicineSchedule> schedules,
+  ) {
+    final Set<String> validScheduleIds =
+        schedules.map((MedicineSchedule schedule) => schedule.id).toSet();
+    final Map<String, MedicineIntakeRecord> normalized =
+        <String, MedicineIntakeRecord>{};
+
+    for (final MedicineIntakeRecord record in records) {
+      if (!validScheduleIds.contains(record.scheduleId) ||
+          record.dayKey.trim().isEmpty ||
+          record.takenAt.trim().isEmpty) {
+        continue;
+      }
+      normalized['${record.scheduleId}_${record.dayKey}'] = record;
+    }
+
+    return normalized.values.toList()
+      ..sort((MedicineIntakeRecord a, MedicineIntakeRecord b) {
+        return b.dayKey.compareTo(a.dayKey);
+      });
   }
 
   DateTime _nextOccurrenceForSort(MedicineSchedule schedule) {
@@ -375,9 +413,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final List<MedicineSchedule> updatedSchedules =
           List<MedicineSchedule>.from(_schedules)
             ..removeWhere((MedicineSchedule e) => e.id == schedule.id);
+      final List<MedicineIntakeRecord> updatedRecords =
+          List<MedicineIntakeRecord>.from(_intakeRecords)
+            ..removeWhere(
+              (MedicineIntakeRecord record) => record.scheduleId == schedule.id,
+            );
 
-      final bool saved = await _storageService.saveSchedules(updatedSchedules);
-      if (!saved) {
+      final bool schedulesSaved =
+          await _storageService.saveSchedules(updatedSchedules);
+      final bool recordsSaved =
+          await _storageService.saveIntakeRecords(updatedRecords);
+      if (!schedulesSaved || !recordsSaved) {
         _showSnackBar('Không thể xóa lịch.');
         return;
       }
@@ -391,12 +437,59 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
       setState(() {
         _schedules = _sortedSchedules(updatedSchedules);
+        _intakeRecords = updatedRecords;
       });
 
       _showSnackBar('Đã xóa lịch uống thuốc.');
     } catch (_) {
       _showSnackBar('Có lỗi khi xóa lịch.');
     }
+  }
+
+  Future<void> _toggleScheduleTakenToday(
+    MedicineSchedule schedule,
+    bool taken,
+  ) async {
+    final DateTime now = DateTime.now();
+    if (!isScheduleDueOnDate(schedule, now)) {
+      _showSnackBar('Lịch này không áp dụng cho hôm nay.');
+      return;
+    }
+
+    final String todayKey = MedicineIntakeRecord.buildDayKey(now);
+    final List<MedicineIntakeRecord> updatedRecords =
+        List<MedicineIntakeRecord>.from(_intakeRecords)
+          ..removeWhere((MedicineIntakeRecord record) {
+            return record.scheduleId == schedule.id && record.dayKey == todayKey;
+          });
+
+    if (taken) {
+      updatedRecords.add(
+        MedicineIntakeRecord(
+          scheduleId: schedule.id,
+          dayKey: todayKey,
+          takenAt: now.toIso8601String(),
+        ),
+      );
+    }
+
+    final bool saved = await _storageService.saveIntakeRecords(updatedRecords);
+    if (!saved) {
+      _showSnackBar('Không thể cập nhật trạng thái uống thuốc.');
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _intakeRecords = _normalizeIntakeRecords(updatedRecords, _schedules);
+    });
+
+    _showSnackBar(
+      taken ? 'Đã đánh dấu uống thuốc hôm nay.' : 'Đã bỏ đánh dấu uống thuốc.',
+    );
   }
 
   Future<void> _updateDisplayName(String displayName) async {
@@ -471,19 +564,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
+  void _navigateToTab(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = <Widget>[
       DashboardPage(
+        settings: _settings,
         medicines: _medicines,
         schedules: _schedules,
+        intakeRecords: _intakeRecords,
+        onNavigateToTab: _navigateToTab,
+        onToggleTakenToday: _toggleScheduleTakenToday,
       ),
       ScheduleManagementPage(
         medicines: _medicines,
         schedules: _schedules,
+        intakeRecords: _intakeRecords,
         notificationsEnabled: _settings.notificationsEnabled,
         onSaveSchedule: _saveSchedule,
         onDeleteSchedule: _deleteSchedule,
+        onToggleTakenToday: _toggleScheduleTakenToday,
       ),
       MedicineManagementPage(
         medicines: _medicines,
@@ -500,33 +605,56 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     const List<String> pageTitles = <String>[
       'Tổng quan',
-      'Quản lí lịch uống thuốc',
-      'Quản lí thuốc',
-      'Tài khoản và cấu hình',
+      'Lịch nhắc',
+      'Tủ thuốc',
+      'Tài khoản',
     ];
 
     return Scaffold(
       appBar: AppBar(
         title: Text(pageTitles[_currentIndex]),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: <Color>[
+                Color(0xFFEFF5FF),
+                Color(0xFFFDFEFF),
+              ],
+            ),
+          ),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(
-              index: _currentIndex,
-              children: pages,
+          : Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[
+                    Color(0xFFF2F7FF),
+                    AppTheme.pageBackground,
+                    Color(0xFFFDFEFF),
+                  ],
+                ),
+              ),
+              child: IndexedStack(
+                index: _currentIndex,
+                children: pages,
+              ),
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (int index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          _navigateToTab(index);
         },
         destinations: const <NavigationDestination>[
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+            label: 'Tổng quan',
           ),
           NavigationDestination(
             icon: Icon(Icons.schedule_outlined),
@@ -536,7 +664,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           NavigationDestination(
             icon: Icon(Icons.medication_outlined),
             selectedIcon: Icon(Icons.medication),
-            label: 'Thuốc',
+            label: 'Tủ thuốc',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

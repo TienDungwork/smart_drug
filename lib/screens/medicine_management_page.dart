@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/medicine.dart';
 import '../models/medicine_schedule.dart';
+import '../theme/app_theme.dart';
 import 'add_edit_medicine_page.dart';
 
 typedef SaveMedicineCallback = Future<void> Function(
@@ -28,64 +29,34 @@ class MedicineManagementPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => _openAddMedicine(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Thêm thuốc'),
-            ),
+          _MedicineOverviewCard(
+            medicineCount: medicines.length,
+            activeScheduleCount: schedules.length,
+            onAddMedicine: () => _openAddMedicine(context),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Expanded(
             child: medicines.isEmpty
-                ? const Card(
-                    child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'Danh sách thuốc đang rỗng.\nHãy thêm thuốc mới để tạo lịch uống thuốc.',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                  )
+                ? const _EmptyMedicineState()
                 : ListView.separated(
                     itemCount: medicines.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (BuildContext context, int index) {
                       final Medicine medicine = medicines[index];
                       final int usedCount = schedules
                           .where((MedicineSchedule e) => e.medicineId == medicine.id)
                           .length;
 
-                      return Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.medication),
-                          ),
-                          title: Text(medicine.name),
-                          subtitle: _buildSubtitle(medicine, usedCount),
-                          trailing: Wrap(
-                            spacing: 4,
-                            children: <Widget>[
-                              IconButton(
-                                tooltip: 'Sửa',
-                                onPressed: () => _openEditMedicine(context, medicine),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                              IconButton(
-                                tooltip: 'Xóa',
-                                onPressed: () => _onTapDelete(context, medicine, usedCount),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
-                          ),
-                        ),
+                      return _MedicineCard(
+                        medicine: medicine,
+                        usedCount: usedCount,
+                        onEdit: () => _openEditMedicine(context, medicine),
+                        onDelete: () =>
+                            _onTapDelete(context, medicine, usedCount),
                       );
                     },
                   ),
@@ -93,21 +64,6 @@ class MedicineManagementPage extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Widget _buildSubtitle(Medicine medicine, int usedCount) {
-    final List<String> lines = <String>[];
-
-    if (medicine.dosage.trim().isNotEmpty) {
-      lines.add('Liều lượng: ${medicine.dosage.trim()}');
-    }
-    if (medicine.note.trim().isNotEmpty) {
-      lines.add('Ghi chú: ${medicine.note.trim()}');
-    }
-
-    lines.add('Đang được dùng trong $usedCount lịch.');
-
-    return Text(lines.join('\n'));
   }
 
   Future<void> _openAddMedicine(BuildContext context) async {
@@ -191,5 +147,252 @@ class MedicineManagementPage extends StatelessWidget {
     }
 
     await onDeleteMedicine(medicine);
+  }
+}
+
+class _MedicineOverviewCard extends StatelessWidget {
+  const _MedicineOverviewCard({
+    required this.medicineCount,
+    required this.activeScheduleCount,
+    required this.onAddMedicine,
+  });
+
+  final int medicineCount;
+  final int activeScheduleCount;
+  final VoidCallback onAddMedicine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color(0xFFEAFBF6),
+            Color(0xFFF7FFFD),
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFD4F0E7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Tủ thuốc của bạn',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Đang lưu $medicineCount thuốc và $activeScheduleCount lịch hoạt động.',
+            style: const TextStyle(
+              color: Color(0xFF607088),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onAddMedicine,
+            icon: const Icon(Icons.add_circle_outline_rounded),
+            label: const Text('Thêm thuốc'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MedicineCard extends StatelessWidget {
+  const _MedicineCard({
+    required this.medicine,
+    required this.usedCount,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Medicine medicine;
+  final int usedCount;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFFE6FBF4),
+                  ),
+                  child: const Icon(
+                    Icons.medication_liquid_rounded,
+                    color: AppTheme.secondary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        medicine.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        medicine.note.trim().isEmpty
+                            ? 'Chưa có ghi chú thêm cho thuốc này.'
+                            : medicine.note.trim(),
+                        style: const TextStyle(
+                          color: Color(0xFF66758E),
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F0FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$usedCount lịch',
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                _MedicineChip(
+                  icon: Icons.science_outlined,
+                  label: medicine.dosage.trim().isEmpty
+                      ? 'Chưa có liều lượng'
+                      : 'Liều: ${medicine.dosage.trim()}',
+                ),
+                _MedicineChip(
+                  icon: Icons.inventory_2_outlined,
+                  label: usedCount == 0
+                      ? 'Chưa gắn vào lịch'
+                      : 'Đang dùng trong $usedCount lịch',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Sửa thuốc'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  tooltip: 'Xóa',
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MedicineChip extends StatelessWidget {
+  const _MedicineChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F7FF),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 16, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF53627C),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyMedicineState extends StatelessWidget {
+  const _EmptyMedicineState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.medication_outlined,
+                size: 44,
+                color: AppTheme.primary,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Danh sách thuốc đang trống',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Hãy thêm thuốc mới để tạo lịch uống, theo dõi và nhắc nhở đúng giờ.',
+                style: TextStyle(
+                  color: Color(0xFF66758E),
+                  height: 1.45,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
